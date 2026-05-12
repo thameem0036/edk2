@@ -1,0 +1,87 @@
+name: OVMF Build (Selectable)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Optional git tag (leave empty for Top Of Trunk)'
+        required: false
+        default: ''
+      build_type:
+        description: 'Select OVMF build type'
+        required: true
+        type: choice
+        default: both
+        options:
+          - secure
+          - standard
+          - both
+
+
+jobs:
+  ovmf-build:
+    runs-on: ubuntu-latest
+
+    env:
+      GIT_TAG: ${{ github.event.inputs.tag }}
+      BUILD_TYPE: ${{ github.event.inputs.build_type || 'both' }}
+
+    container:
+      image: ghcr.io/tianocore/containers/ubuntu-24-test:latest
+      options: --user 0:0
+
+    steps:
+      - name: Checkout EDK2 repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Make CI scripts executable
+        run: |
+          chmod +x ci/build-ovmf-inner.sh
+
+      - name: Mark workspace as safe for Git
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # ==================================================
+      # Secure Boot build
+      # ==================================================
+      - name: Build OVMF (Secure Boot)
+        if: ${{ env.BUILD_TYPE == 'secure' || env.BUILD_TYPE == 'both' }}
+        run: |
+          ci/build-ovmf-inner.sh secure
+
+      - name: Upload Secure Boot artifacts
+        if: ${{ env.BUILD_TYPE == 'secure' || env.BUILD_TYPE == 'both' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ovmf-secure-${{ github.run_number }}
+          path: |
+            Build/OvmfX64/**/FV/sec_OVMF.fd
+            Build/OvmfX64/**/FV/sec_OVMF_CODE.fd
+            Build/OvmfX64/**/FV/sec_OVMF_VARS.fd
+
+      - name: Clean build directory after Secure build
+        if: ${{ env.BUILD_TYPE == 'both' }}
+        run: |
+          rm -rf Build
+
+      # ==================================================
+      # Standard build
+      # ==================================================
+      - name: Build OVMF (Standard)
+        if: ${{ env.BUILD_TYPE == 'standard' || env.BUILD_TYPE == 'both' }}
+        run: |
+          ci/build-ovmf-inner.sh standard
+
+      - name: Upload Standard artifacts
+        if: ${{ env.BUILD_TYPE == 'standard' || env.BUILD_TYPE == 'both' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ovmf-standard-${{ github.run_number }}
+          path: |
+            Build/OvmfX64/**/FV/OVMF.fd
+            Build/OvmfX64/**/FV/OVMF_CODE.fd
+            Build/OvmfX64/**/FV/OVMF_VARS.fd
